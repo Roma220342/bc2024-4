@@ -2,6 +2,8 @@ const http = require('http');
 const { program } = require('commander');
 const fs = require('fs').promises;
 const url = require('url');
+const path = require('path');
+const superagent = require('superagent');
 
 program
     .requiredOption('-h, --host <type>', 'адреса сервера')
@@ -22,41 +24,98 @@ const host = options.host;
 const port = options.port;
 const cachePath = options.cache;
 
-const routes = {
-    '/health': {
-        'GET': (req, res) => {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ message: 'Юxyy!! Сервер паше!!!' }));
-        },
-    },
+const getFilePath = (cachePath, code) => {
+    return path.join(cachePath, `${code}.jpg`);
 };
 
-// Обробка запиту
 const requestListener = function (req, res) {
-   try{
+    try {
+        let code = url.parse(req.url).pathname;
+        const method = req.method;
+        let full_path = getFilePath(cachePath, code);
 
-    const parsedUrl = new url.URL(req.url, `http://${req.headers.host}`);
-    const handler = routes[parsedUrl.pathname]?.[req.method];
+        switch (method) { 
+            case 'PUT':
+                fs.access(full_path) 
+                    .then(() => {
+                        // Якщо файл існує - оновлюємо 
+                        return superagent
+                            .get('https://http.cat' + code)
+                            .buffer(true)
+                            .then((response) => fs.writeFile(full_path, response.body)) 
+                            .then(() => {
+                                res.writeHead(200, { 'Content-Type': 'text/html' });
+                                res.end('Порядок, картинку оновлено');
+                            });
+                    })
+                    .catch(() => {
+                        // Якщо файл не існує - створюємо 
+                        superagent
+                            .get('https://http.cat' + code)
+                            .buffer(true)
+                            .then((response) => fs.writeFile(full_path, response.body)) 
+                            .then(() => {
+                                res.writeHead(201, { 'Content-Type': 'text/html' });
+                                res.end('Порядок, картинку збережено');
+                            })
+                            .catch(() => {
+                                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                                res.end("Халепа, картинку не знайдено на сервері");
+                            });
+                    });
+                break;
 
-    if (handler) { // Якщо handler існує, викликати його
-        handler(req, res);
-    } else {
-        // Відповідь на невідомі маршрути
-        res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: 'Не знайдено' }));
+            case 'GET':
+                fs.access(full_path)
+                    .then(() => fs.readFile(full_path))
+                    .then((result) => {
+                        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+                        res.end(result);
+                    })
+                    .catch(() => {
+                        superagent
+                            .get('https://http.cat' + code)
+                            .buffer(true)
+                            .then((response) => fs.writeFile(full_path, response.body))
+                            .then((response) => {
+                                res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+                                res.end(response.body);
+                            })
+                            .catch(() => {
+                                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                                res.end('Халепа, картинку не знайдено на сервері');
+                            });
+                    });
+                break;
+
+            case 'DELETE':
+                fs.access(full_path)
+                    .then(() => fs.unlink(full_path))
+                    .then(() => {
+                        res.writeHead(200, { 'Content-Type': 'text/plain' });
+                        res.end('Добре, картинку видалив');
+                    })
+                    .catch(() => {
+                        res.writeHead(404, { 'Content-Type': 'text/plain' });
+                        res.end('Халепа, картинку не знайдено на сервері');
+                    });
+                break;
+
+            default:
+                res.writeHead(405, { 'Content-Type': 'text/plain' });
+                res.end('Таке не можна. Метод не дозволено');
+                break;
+        }
+
+    } catch (err) {
+        console.error(err);
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Серверна халепа');
     }
-
-   } catch (err){
-    console.error(err)
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ message: 'Помилка сервера' }));
-   }
-    
 };
 
-// Створення HTTP сервера
 const server = http.createServer(requestListener);
 
 server.listen(port, host, () => {
-    console.log(`Сервер стартанув на http://${host}:${port}/health`);
+    console.log(`Сервер стартанув на http://${host}:${port}`);
 });
