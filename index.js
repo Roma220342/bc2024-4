@@ -28,6 +28,20 @@ const getFilePath = (cachePath, code) => {
     return path.join(cachePath, `${code}.jpg`);
 };
 
+//для PUT
+const updateOrSave = (code, savePath) => {
+    return superagent
+        .get('https://http.cat' + code)
+        .buffer(true)
+        .then((response) => fs.writeFile(savePath, response.body));
+};
+
+//функція для скорочення відповідей 
+const sendResponse = (res, statusCode, contentType, message) => {
+    res.writeHead(statusCode, { 'Content-Type': contentType });
+    res.end(message);
+};
+
 const requestListener = function (req, res) {
     try {
         let code = url.parse(req.url).pathname;
@@ -39,28 +53,19 @@ const requestListener = function (req, res) {
                 fs.access(full_path) 
                     .then(() => {
                         // Якщо файл існує - оновлюємо 
-                        return superagent
-                            .get('https://http.cat' + code)
-                            .buffer(true)
-                            .then((response) => fs.writeFile(full_path, response.body)) 
+                        return updateOrSave(code, full_path)
                             .then(() => {
-                                res.writeHead(200, { 'Content-Type': 'text/html' });
-                                res.end('Порядок, картинку оновлено');
+                                sendResponse(res, 200, 'utf-8', 'Порядок, картинку оновлено');
                             });
                     })
                     .catch(() => {
                         // Якщо файл не існує - створюємо 
-                        superagent
-                            .get('https://http.cat' + code)
-                            .buffer(true)
-                            .then((response) => fs.writeFile(full_path, response.body)) 
+                        return updateOrSave(code, full_path)
                             .then(() => {
-                                res.writeHead(201, { 'Content-Type': 'text/html' });
-                                res.end('Порядок, картинку збережено');
+                                sendResponse(res, 201, 'utf-8','Порядок, картинку збережено');
                             })
                             .catch(() => {
-                                res.writeHead(404, { 'Content-Type': 'text/plain' });
-                                res.end("Халепа, картинку не знайдено на сервері");
+                                sendResponse(res, 404, 'utf-8', 'Халепа, картинку не знайдено на сервері');
                             });
                     });
                 break;
@@ -69,21 +74,15 @@ const requestListener = function (req, res) {
                 fs.access(full_path)
                     .then(() => fs.readFile(full_path))
                     .then((result) => {
-                        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-                        res.end(result);
+                        sendResponse(res, 200, 'image/jpeg', result);
                     })
                     .catch(() => {
-                        superagent
-                            .get('https://http.cat' + code)
-                            .buffer(true)
-                            .then((response) => fs.writeFile(full_path, response.body))
+                        return updateOrSave(code, full_path)
                             .then((response) => {
-                                res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-                                res.end(response.body);
+                                sendResponse(res, 200, 'image/jpeg', result);
                             })
                             .catch(() => {
-                                res.writeHead(404, { 'Content-Type': 'text/plain' });
-                                res.end('Халепа, картинку не знайдено на сервері');
+                                sendResponse(res, 404, 'utf-8','Халепа, картинку не знайдено на сервері');
                             });
                     });
                 break;
@@ -92,25 +91,21 @@ const requestListener = function (req, res) {
                 fs.access(full_path)
                     .then(() => fs.unlink(full_path))
                     .then(() => {
-                        res.writeHead(200, { 'Content-Type': 'text/plain' });
-                        res.end('Добре, картинку видалив');
+                        sendResponse(res, 200, 'utf-8', 'Добре, картинку видалив');
                     })
                     .catch(() => {
-                        res.writeHead(404, { 'Content-Type': 'text/plain' });
-                        res.end('Халепа, картинку не знайдено на сервері');
+                        sendResponse(res, 404, 'utf-8', 'Ой-ой, картинку не знайдено в папці "cache"');
                     });
                 break;
 
             default:
-                res.writeHead(405, { 'Content-Type': 'text/plain' });
-                res.end('Таке не можна. Метод не дозволено');
+                sendResponse(res, 405, 'utf-8', 'Таке не можна. Метод не дозволено');
                 break;
         }
 
     } catch (err) {
         console.error(err);
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Серверна халепа');
+        sendResponse (res, 500, 'utf-8', 'Серверна халепа');
     }
 };
 
